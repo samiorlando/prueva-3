@@ -214,6 +214,22 @@
             box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
         }
 
+        .device-info {
+            background-color: var(--secondary);
+            border: 1px solid var(--tertiary);
+            border-radius: 4px;
+            padding: 8px;
+            margin-bottom: 10px;
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        .device-info.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background-color: rgba(0, 255, 0, 0.1);
+        }
+
         /* ============ CENTER PANEL ============ */
         .center-panel {
             flex: 1;
@@ -528,12 +544,15 @@
     <div class="main-container">
         <!-- SIDEBAR -->
         <div class="sidebar">
-            <div class="section-title">📥 INPUT</div>
+            <div class="section-title">📥 ENTRADA DE AUDIO</div>
             <div class="control-group">
-                <label class="label">Entrada</label>
+                <label class="label">Dispositivo de Entrada</label>
                 <select class="select-input" id="inputDevice">
-                    <option>Micrófono del sistema</option>
+                    <option>Cargando dispositivos...</option>
                 </select>
+            </div>
+            <div class="device-info" id="inputDeviceInfo">
+                Estado: Desconectado
             </div>
 
             <div class="slider-container">
@@ -547,12 +566,15 @@
                 <div class="vu-meter-label">Input Level</div>
             </div>
 
-            <div class="section-title">📤 OUTPUT</div>
+            <div class="section-title">📤 SALIDA DE AUDIO</div>
             <div class="control-group">
-                <label class="label">Salida</label>
+                <label class="label">Dispositivo de Salida</label>
                 <select class="select-input" id="outputDevice">
-                    <option>Altavoz del sistema</option>
+                    <option>Cargando dispositivos...</option>
                 </select>
+            </div>
+            <div class="device-info" id="outputDeviceInfo">
+                Estado: Desconectado
             </div>
 
             <div class="slider-container">
@@ -574,7 +596,7 @@
                 <button class="preset-btn" data-preset="bass">Ultra Bass</button>
             </div>
 
-            <div class="section-title">⚙️ SETTINGS</div>
+            <div class="section-title">⚙️ CONFIGURACIÓN</div>
             <div class="control-group">
                 <label class="label">Latencia</label>
                 <select class="select-input" id="bufferSize">
@@ -824,7 +846,7 @@
     </div>
 
     <script>
-        // ============ AUDIO CONTEXT ============
+        // ============ AUDIO PROCESSOR ============
         class AudioProcessor {
             constructor() {
                 this.audioContext = null;
@@ -846,11 +868,6 @@
                 this.eqFilters = [];
                 this.graphicEqFilters = [];
                 
-                // Meters
-                this.inputMeterValue = 0;
-                this.outputMeterValue = 0;
-                this.compGainReduction = 0;
-                
                 // Bypass states
                 this.bypasses = {
                     eq: false,
@@ -861,11 +878,80 @@
                     stereo: false
                 };
 
+                // Dispositivos de audio
+                this.inputDevices = [];
+                this.outputDevices = [];
+                this.selectedInputDeviceId = null;
+                this.selectedOutputDeviceId = null;
+
                 // Initialize
                 this.initAudioContext();
+                this.enumerateAudioDevices();
                 this.setupUI();
                 this.setupVisualizers();
                 this.updateMeters();
+            }
+
+            async enumerateAudioDevices() {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    
+                    this.inputDevices = devices.filter(device => device.kind === 'audioinput');
+                    this.outputDevices = devices.filter(device => device.kind === 'audiooutput');
+                    
+                    // Cargar selectores de entrada
+                    const inputSelect = document.getElementById('inputDevice');
+                    inputSelect.innerHTML = '';
+                    if (this.inputDevices.length === 0) {
+                        inputSelect.innerHTML = '<option>No se encontraron dispositivos de entrada</option>';
+                    } else {
+                        this.inputDevices.forEach((device, index) => {
+                            const option = document.createElement('option');
+                            option.value = device.deviceId;
+                            option.textContent = device.label || `Dispositivo de Entrada ${index + 1}`;
+                            inputSelect.appendChild(option);
+                        });
+                        this.selectedInputDeviceId = this.inputDevices[0].deviceId;
+                    }
+                    
+                    // Cargar selectores de salida
+                    const outputSelect = document.getElementById('outputDevice');
+                    outputSelect.innerHTML = '';
+                    if (this.outputDevices.length === 0) {
+                        outputSelect.innerHTML = '<option>No se encontraron dispositivos de salida</option>';
+                    } else {
+                        this.outputDevices.forEach((device, index) => {
+                            const option = document.createElement('option');
+                            option.value = device.deviceId;
+                            option.textContent = device.label || `Dispositivo de Salida ${index + 1}`;
+                            outputSelect.appendChild(option);
+                        });
+                        this.selectedOutputDeviceId = this.outputDevices[0].deviceId;
+                    }
+                    
+                    // Actualizar información de dispositivos
+                    this.updateDeviceInfo();
+                } catch (err) {
+                    console.error('Error enumerando dispositivos:', err);
+                    document.getElementById('inputDevice').innerHTML = '<option>Error al acceder a dispositivos</option>';
+                    document.getElementById('outputDevice').innerHTML = '<option>Error al acceder a dispositivos</option>';
+                }
+            }
+
+            updateDeviceInfo() {
+                const inputSelect = document.getElementById('inputDevice');
+                const outputSelect = document.getElementById('outputDevice');
+                const inputInfo = document.getElementById('inputDeviceInfo');
+                const outputInfo = document.getElementById('outputDeviceInfo');
+                
+                const selectedInputLabel = inputSelect.options[inputSelect.selectedIndex].text;
+                const selectedOutputLabel = outputSelect.options[outputSelect.selectedIndex].text;
+                
+                inputInfo.textContent = `✓ Entrada: ${selectedInputLabel}`;
+                inputInfo.classList.add('active');
+                
+                outputInfo.textContent = `✓ Salida: ${selectedOutputLabel}`;
+                outputInfo.classList.add('active');
             }
 
             initAudioContext() {
@@ -897,11 +983,6 @@
                 this.limiterNode.ratio.value = 20;
                 this.limiterNode.attack.value = 0.001;
                 this.limiterNode.release.value = 0.05;
-                
-                // Stereo
-                this.stereoSplitter = this.audioContext.createChannelSplitter(2);
-                this.stereoMerger = this.audioContext.createChannelMerger(2);
-                this.stereoPanner = this.audioContext.createStereoPanner();
                 
                 // Create 5-band EQ filters
                 const eqFreqs = [40, 150, 500, 2000, 8000];
@@ -957,9 +1038,18 @@
             async start() {
                 try {
                     this.audioContext.resume();
-                    const stream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: { echoCancellation: false, noiseSuppression: false }
-                    });
+                    
+                    const inputSelect = document.getElementById('inputDevice');
+                    const constraints = {
+                        audio: {
+                            deviceId: { ideal: inputSelect.value },
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false
+                        }
+                    };
+                    
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
                     this.micSource = this.audioContext.createMediaStreamSource(stream);
                     this.micSource.connect(this.inputGainNode);
                     this.isRunning = true;
@@ -968,8 +1058,8 @@
                     document.getElementById('statusLight').classList.add('active');
                     this.updateSampleRateInfo();
                 } catch (err) {
-                    console.error('Error accessing microphone:', err);
-                    alert('No se pudo acceder al micrófono');
+                    console.error('Error accediendo al micrófono:', err);
+                    alert('No se pudo acceder al micrófono: ' + err.message);
                 }
             }
 
@@ -993,6 +1083,17 @@
             }
 
             setupUI() {
+                // Cambio de dispositivos
+                document.getElementById('inputDevice').addEventListener('change', (e) => {
+                    this.selectedInputDeviceId = e.target.value;
+                    this.updateDeviceInfo();
+                });
+                
+                document.getElementById('outputDevice').addEventListener('change', (e) => {
+                    this.selectedOutputDeviceId = e.target.value;
+                    this.updateDeviceInfo();
+                });
+                
                 // Start/Stop buttons
                 document.getElementById('startBtn').addEventListener('click', () => this.start());
                 document.getElementById('stopBtn').addEventListener('click', () => this.stop());
@@ -1087,7 +1188,6 @@
                 // Stereo Enhancer
                 document.getElementById('stereoWidth').addEventListener('input', (e) => {
                     const val = parseFloat(e.target.value) / 100;
-                    this.stereoPanner.pan.value = 0;
                     document.getElementById('stereoWidth-value').textContent = e.target.value + '%';
                 });
                 
@@ -1108,7 +1208,7 @@
                 
                 // Presets
                 document.querySelectorAll('.preset-btn').forEach(btn => {
-                    btn.addEventListener('click', () => this.applyPreset(btn.dataset.preset));
+                    btn.addEventListener('click', (e) => this.applyPreset(btn.dataset.preset));
                 });
                 
                 // Buffer size
@@ -1158,28 +1258,24 @@
                         compThreshold: -18,
                         compRatio: 4,
                         bassGain: 4,
-                        description: 'Optimizado para radio FM'
                     },
                     voice: {
                         inputGain: 0,
                         compThreshold: -16,
                         compRatio: 3,
                         bassGain: 0,
-                        description: 'Perfecto para voz clara'
                     },
                     music: {
                         inputGain: 0,
                         compThreshold: -20,
                         compRatio: 5,
                         bassGain: 6,
-                        description: 'Para música potente'
                     },
                     bass: {
                         inputGain: 6,
                         compThreshold: -24,
                         compRatio: 6,
                         bassGain: 12,
-                        description: 'Ultra bass boost'
                     }
                 };
                 
@@ -1304,4 +1400,5 @@
     </script>
 </body>
 </html>
+
 
